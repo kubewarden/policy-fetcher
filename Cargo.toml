@@ -21,7 +21,7 @@ oci-distribution = { git = "https://github.com/kubewarden/oci-distribution", bra
 path-slash = "0.1.4"
 regex = "1.5.4"
 reqwest = { version = "0.11.3", default-features = false, features = ["rustls-tls"] }
-rustls = "0.19.1"
+rustls = "0.20.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.64"
 serde_yaml = "0.8.15"
@@ -30,6 +30,7 @@ sigstore = { git = "https://github.com/sigstore/sigstore-rs", default-features =
 tracing = "0.1.29"
 url = "2.2.0"
 walkdir = "2"
+wasmtime = "0.30.0"
 
 [dev-dependencies]
 rstest = "0.12.0"
