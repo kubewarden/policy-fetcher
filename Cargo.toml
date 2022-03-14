@@ -26,7 +26,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.79"
 serde_yaml = "0.8.23"
 sha2 = "0.10.2"
-sigstore = { git = "https://github.com/sigstore/sigstore-rs", default-features = false, features = ["rustls-tls"], rev = "5ae927a652db6076cb9d98b8e3fd8f5baadf3308" }
+sigstore = { git = "https://github.com/sigstore/sigstore-rs", default-features = false, features = ["rustls-tls"], rev = "9ea630d2560368beeb0efa3c87c1ad224243b8f3" }
 tracing = "0.1.32"
 url = { version = "2.2.2", features = ["serde"] }
 walkdir = "2"
