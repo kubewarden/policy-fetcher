@@ -17,7 +17,7 @@ use crate::verify::verification_constraints;
 /// * Implement `TryFrom` that goes from (v - 1) to (v)
 pub type LatestVerificationConfig = VerificationConfigV1;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct VerificationConfigV1 {
     pub all_of: Option<Vec<Signature>>,
