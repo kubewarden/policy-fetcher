@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use kubewarden_policy_sdk::host_capabilities::verification::Subject;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use tracing::debug;
@@ -10,8 +11,6 @@ use sigstore::cosign::verification_constraint::{
 use sigstore::cosign::{signature_layers::CertificateSubject, SignatureLayer};
 use sigstore::crypto::SignatureDigestAlgorithm;
 use sigstore::errors::{Result, SigstoreError};
-
-use super::config::Subject;
 
 /// Verification Constraint for public keys and annotations
 ///

@@ -9,7 +9,8 @@ use std::{convert::TryInto, str::FromStr};
 use tracing::{debug, error, info};
 use url::{ParseError, Url};
 
-use self::config::Signature;
+use crate::verify::config::SignatureVerifier;
+use kubewarden_policy_sdk::host_capabilities::verification::Signature;
 
 /// This structure simplifies the process of policy verification
 /// using Sigstore
@@ -132,7 +133,6 @@ impl Verifier {
             ));
         }
         let image_name = url.as_str().strip_prefix("registry://").unwrap();
-
         // obtain registry auth:
         //
         let auth: sigstore::registry::Auth = match docker_config {
@@ -279,25 +279,28 @@ fn verify_signatures_against_config(
     if let Some(ref signatures_all_of) = verification_config.all_of {
         let unsatisfied_signatures: Vec<&Signature> = signatures_all_of
             .par_iter()
-            .filter(|signature| match signature.verifier() {
-                Ok(verifier) => {
-                    let constraints = [verifier];
-                    let is_satisfied =
-                        cosign::verify_constraints(trusted_layers, constraints.iter());
-                    match is_satisfied {
-                        Ok(_) => {
-                            debug!(
-                                "Constraint satisfied:\n{}",
-                                &serde_yaml::to_string(signature).unwrap()
-                            );
-                            false
+            .filter(|signature| {
+                let signature_verifier = SignatureVerifier::new((**signature).clone());
+                match signature_verifier.verifier() {
+                    Ok(verifier) => {
+                        let constraints = [verifier];
+                        let is_satisfied =
+                            cosign::verify_constraints(trusted_layers, constraints.iter());
+                        match is_satisfied {
+                            Ok(_) => {
+                                debug!(
+                                    "Constraint satisfied:\n{}",
+                                    &serde_yaml::to_string(signature).unwrap()
+                                );
+                                false
+                            }
+                            Err(_) => true, //filter into unsatisfied_signatures
                         }
-                        Err(_) => true, //filter into unsatisfied_signatures
                     }
-                }
-                Err(error) => {
-                    info!(?error, ?signature, "Cannot create verifier for signature");
-                    true
+                    Err(error) => {
+                        info!(?error, ?signature, "Cannot create verifier for signature");
+                        true
+                    }
                 }
             })
             .collect();
@@ -315,17 +318,22 @@ fn verify_signatures_against_config(
         let unsatisfied_signatures: Vec<&Signature> = signatures_any_of
             .signatures
             .par_iter()
-            .filter(|signature| match signature.verifier() {
-                Ok(verifier) => {
-                    let constraints = [verifier];
-                    cosign::verify_constraints(trusted_layers, constraints.iter()).is_err()
-                }
-                Err(error) => {
-                    info!(?error, ?signature, "Cannot create verifier for signature");
-                    true
+            .filter(|signature| {
+                let signature_verifier = SignatureVerifier::new((**signature).clone());
+
+                match signature_verifier.verifier() {
+                    Ok(verifier) => {
+                        let constraints = [verifier];
+                        cosign::verify_constraints(trusted_layers, constraints.iter()).is_err()
+                    }
+                    Err(error) => {
+                        info!(?error, ?signature, "Cannot create verifier for signature");
+                        true
+                    }
                 }
             })
             .collect();
+
         {
             let num_satisfied_constraints =
                 signatures_any_of.signatures.len() - unsatisfied_signatures.len();
@@ -346,8 +354,10 @@ fn verify_signatures_against_config(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use config::{AnyOf, LatestVerificationConfig, Signature, Subject};
     use cosign::signature_layers::CertificateSubject;
+    use kubewarden_policy_sdk::host_capabilities::verification::{
+        AnyOf, LatestVerificationConfig, Subject,
+    };
     use sigstore::{cosign::signature_layers::CertificateSignature, simple_signing::SimpleSigning};
 
     fn build_signature_layers_keyless(
@@ -387,7 +397,7 @@ kvUsh4eKpd1lwkDAzfFDs7yXEExsEkPPuiQJBelDT68n7PDIWB/QEY7mrA==
         }
     }
 
-    fn generic_issuer(issuer: &str, subject_str: &str) -> config::Signature {
+    fn generic_issuer(issuer: &str, subject_str: &str) -> Signature {
         let subject = Subject::Equal(subject_str.to_string());
         Signature::GenericIssuer {
             issuer: issuer.to_string(),

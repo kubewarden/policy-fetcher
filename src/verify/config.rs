@@ -1,13 +1,15 @@
 use anyhow::{anyhow, Result};
-use serde::{Deserialize, Deserializer, Serialize};
+use kubewarden_policy_sdk::host_capabilities::verification::{
+    Signature, VerificationConfig, VerificationConfigV1, VersionedVerificationConfig,
+};
 use sigstore::{
     cosign::verification_constraint::VerificationConstraint, crypto::SignatureDigestAlgorithm,
 };
 use std::boxed::Box;
-use std::{collections::HashMap, fs, path::Path};
-use url::Url;
+use std::{fs, path::Path};
 
 use crate::verify::verification_constraints;
+pub use kubewarden_policy_sdk::host_capabilities::verification;
 
 /// Alias to the type that is currently used to store the
 /// verification settings.
@@ -17,78 +19,24 @@ use crate::verify::verification_constraints;
 /// * Implement `TryFrom` that goes from (v - 1) to (v)
 pub type LatestVerificationConfig = VerificationConfigV1;
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct VerificationConfigV1 {
-    pub all_of: Option<Vec<Signature>>,
-    pub any_of: Option<AnyOf>,
+pub struct SignatureVerifier {
+    signature: Signature,
 }
 
-/// Enum that holds all the known versions of the configuration file
-///
-/// An unsupported version is a object that has `apiVersion` with an
-/// unknown value (e.g: 1000)
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(tag = "apiVersion", rename_all = "camelCase", deny_unknown_fields)]
-pub enum VersionedVerificationConfig {
-    #[serde(rename = "v1")]
-    V1(VerificationConfigV1),
-    #[serde(other)]
-    Unsupported,
-}
-
-/// Enum that distinguish between a well formed (but maybe unknown) version of
-/// the verification config, and something which is "just wrong".
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum VerificationConfig {
-    Versioned(VersionedVerificationConfig),
-    Invalid(serde_yaml::Value),
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AnyOf {
-    #[serde(default = "default_minimum_matches")]
-    pub minimum_matches: u8,
-    pub signatures: Vec<Signature>,
-}
-
-fn default_minimum_matches() -> u8 {
-    1
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", tag = "kind", deny_unknown_fields)]
-pub enum Signature {
-    PubKey {
-        owner: Option<String>,
-        key: String,
-        annotations: Option<HashMap<String, String>>,
-    },
-    GenericIssuer {
-        issuer: String,
-        subject: Subject,
-        annotations: Option<HashMap<String, String>>,
-    },
-    GithubAction {
-        owner: String,
-        repo: Option<String>,
-        annotations: Option<HashMap<String, String>>,
-    },
-}
-
-impl Signature {
-    pub fn verifier(&self) -> Result<Box<dyn VerificationConstraint>> {
-        match self {
+impl SignatureVerifier {
+    pub fn new(signature: Signature) -> Self {
+        SignatureVerifier { signature }
+    }
+    pub fn verifier(self) -> Result<Box<dyn VerificationConstraint>> {
+        match self.signature {
             Signature::PubKey {
                 owner,
                 key,
                 annotations,
             } => {
                 let vc = verification_constraints::PublicKeyAndAnnotationsVerifier::new(
-                    owner.as_ref().map(|r| r.as_str()),
-                    key,
+                    owner.as_deref(),
+                    key.as_str(),
                     SignatureDigestAlgorithm::default(),
                     annotations.as_ref(),
                 )
@@ -101,8 +49,8 @@ impl Signature {
                 annotations,
             } => Ok(Box::new(
                 verification_constraints::GenericIssuerSubjectVerifier::new(
-                    issuer,
-                    subject,
+                    issuer.as_str(),
+                    &subject,
                     annotations.as_ref(),
                 ),
             )),
@@ -111,34 +59,12 @@ impl Signature {
                 repo,
                 annotations,
             } => Ok(Box::new(verification_constraints::GitHubVerifier::new(
-                owner,
-                repo.as_ref().map(|r| r.as_str()),
+                owner.as_str(),
+                repo.as_deref(),
                 annotations.as_ref(),
             ))),
         }
     }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub enum Subject {
-    Equal(String),
-    #[serde(deserialize_with = "deserialize_subject_url_prefix")]
-    UrlPrefix(Url),
-}
-
-fn deserialize_subject_url_prefix<'de, D>(deserializer: D) -> Result<Url, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let mut url = Url::deserialize(deserializer)?;
-    if !url.path().ends_with('/') {
-        // sanitize url prefix path by postfixing `/`, to prevent
-        // `https://github.com/kubewarden` matching
-        // `https://github.com/kubewarden-malicious/`
-        url.set_path(format!("{}{}", url.path(), '/').as_str());
-    }
-    Ok(url)
 }
 
 pub fn read_verification_file(path: &Path) -> Result<LatestVerificationConfig> {
@@ -202,6 +128,8 @@ pub fn build_latest_verification_config(config_str: &str) -> Result<LatestVerifi
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kubewarden_policy_sdk::host_capabilities::verification::Subject;
+    use url::Url;
 
     #[test]
     fn test_deserialize_on_broken_yaml() {
