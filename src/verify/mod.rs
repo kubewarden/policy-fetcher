@@ -6,11 +6,13 @@ use oci_distribution::manifest::WASM_LAYER_MEDIA_TYPE;
 use sigstore::cosign::{self, signature_layers::SignatureLayer, ClientBuilder, CosignCapabilities};
 
 use std::{convert::TryInto, str::FromStr};
+use std::convert::TryFrom;
 use tracing::{debug, error, info};
 use url::{ParseError, Url};
 
 use crate::verify::config::SignatureVerifier;
 use kubewarden_policy_sdk::host_capabilities::verification::Signature;
+use oci_distribution::Reference;
 
 /// This structure simplifies the process of policy verification
 /// using Sigstore
@@ -120,19 +122,16 @@ impl Verifier {
     ) -> Result<String> {
         // obtain image name:
         //
-        let url = match Url::parse(url) {
-            Ok(u) => Ok(u),
-            Err(ParseError::RelativeUrlWithoutBase) => {
-                Url::parse(format!("registry://{}", url).as_str())
-            }
-            Err(e) => Err(e),
-        }?;
-        if url.scheme() != "registry" {
+        let image_name = match url.strip_prefix("registry://"){
+            None => url,
+            Some(url) => url
+        };
+        if let Err(e) = Reference::try_from(image_name) {
             return Err(anyhow!(
-                "Verification works only with 'registry://' protocol"
-            ));
+                "Not a valid oci image {}", e
+            ))
         }
-        let image_name = url.as_str().strip_prefix("registry://").unwrap();
+
         // obtain registry auth:
         //
         let auth: sigstore::registry::Auth = match docker_config {
