@@ -10,6 +10,10 @@ use sigstore::{
 
 use crate::verify::config::Signature;
 use crate::verify::errors::VerifyError;
+
+#[cfg(test)]
+use crate::registry::MockRegistry as Registry;
+#[cfg(not(test))]
 use crate::Registry;
 
 use oci_distribution::secrets::RegistryAuth;
@@ -321,10 +325,13 @@ fn verify_signatures_against_config(
 /// Returns:
 /// * String holding the source image digest
 /// * List of signature layers
-pub async fn fetch_sigstore_remote_data(
-    cosign_client_input: &Arc<Mutex<cosign::Client>>,
+pub async fn fetch_sigstore_remote_data<C>(
+    cosign_client_input: &Arc<Mutex<C>>,
     image_url: &str,
-) -> VerifyResult<(String, Vec<SignatureLayer>)> {
+) -> VerifyResult<(String, Vec<SignatureLayer>)>
+where
+    C: CosignCapabilities,
+{
     let mut cosign_client = cosign_client_input.lock().await;
 
     // obtain image name:
@@ -381,12 +388,19 @@ pub async fn fetch_sigstore_remote_data(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::registry::MockRegistry;
+    use async_trait::async_trait;
     use config::{AnyOf, LatestVerificationConfig, Signature, Subject};
     use cosign::signature_layers::CertificateSubject;
+    use mockall::mock;
+    use mockall::predicate;
+    use sigstore::registry::oci_reference::OciReference;
+    use sigstore::registry::{Auth, PushResponse};
     use sigstore::{
         cosign::payload::simple_signing::SimpleSigning,
         cosign::signature_layers::CertificateSignature,
     };
+    use std::collections::HashMap;
 
     fn build_signature_layers_keyless(
         issuer: Option<String>,
@@ -440,6 +454,44 @@ kvUsh4eKpd1lwkDAzfFDs7yXEExsEkPPuiQJBelDT68n7PDIWB/QEY7mrA==
     fn signature_layer(issuer: &str, subject_str: &str) -> SignatureLayer {
         let certificate_subject = CertificateSubject::Email(subject_str.to_string());
         build_signature_layers_keyless(Some(issuer.to_string()), certificate_subject)
+    }
+
+    mock! {
+        pub CosignClient {}
+        #[async_trait]
+        impl sigstore::cosign::CosignCapabilities for CosignClient {
+            async fn triangulate( &mut self, image: &OciReference, auth: &Auth,) -> sigstore::errors::Result<(OciReference, String)>;
+            async fn trusted_signature_layers( &mut self, auth: &Auth, source_image_digest: &str, cosign_image: &OciReference,) -> sigstore::errors::Result<Vec<SignatureLayer>>;
+            async fn push_signature( &mut self, annotations: Option<HashMap<String, String>>, auth: &Auth, target_reference: &OciReference, signature_layers: Vec<SignatureLayer>,) -> sigstore::errors::Result<PushResponse>;
+            fn verify_blob(cert: &str, signature: &str, blob: &[u8]) -> sigstore::errors::Result<()>;
+            fn verify_blob_with_public_key(public_key: &str, signature: &str, blob: &[u8]) -> sigstore::errors::Result<()> ;
+        }
+    }
+
+    #[test]
+    fn test_using_registry_name_to_get_credentials_from_docker_config_file() {
+        let image_url = "ghcr.io/kubewarden/disallow-service-nodeport:latest";
+        let mut cosign_client = MockCosignClient::new();
+        cosign_client.expect_triangulate().return_once(|_, _| {
+            // Just return an error to avoid further processing in the function 
+            // under test
+            Err(sigstore::errors::SigstoreError::RegistryPullManifestError {
+                image: image_url.to_string(),
+                error: "Found a OciImageIndex instead of a OciImageManifest".to_string(),
+            })
+        });
+        let auth_context = MockRegistry::auth_context();
+        auth_context
+            .expect()
+            .once()
+            .with(predicate::eq("ghcr.io"))
+            .returning(|_| RegistryAuth::Anonymous);
+
+        let result = tokio_test::block_on(fetch_sigstore_remote_data(
+            &Arc::new(Mutex::new(cosign_client)),
+            image_url,
+        ));
+        assert!(result.is_err());
     }
 
     #[test]

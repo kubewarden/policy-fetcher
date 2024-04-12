@@ -28,6 +28,9 @@ use errors::RegistryError;
 
 use self::errors::RegistryResult;
 
+#[cfg(test)]
+use mockall::automock;
+
 pub mod errors;
 
 lazy_static! {
@@ -93,6 +96,8 @@ impl From<ClientProtocol> for ClientConfig {
     }
 }
 
+#[cfg_attr(test, automock)]
+#[cfg_attr(test, allow(dead_code))]
 impl Registry {
     pub fn new() -> Registry {
         Registry {}
@@ -125,10 +130,10 @@ impl Registry {
     }
 
     /// Fetch the manifest of the OCI object referenced by the given url.
-    pub async fn manifest(
+    pub async fn manifest<'a>(
         &self,
         url: &str,
-        sources: Option<&Sources>,
+        sources: Option<&'a Sources>,
     ) -> RegistryResult<oci_distribution::manifest::OciManifest> {
         // Start by building the Reference, this will expand the input url to
         // ensure it contains also the registry. Example: `busybox` ->
@@ -147,10 +152,10 @@ impl Registry {
     }
 
     /// Fetch the manifest's digest of the OCI object referenced by the given url.
-    pub async fn manifest_digest(
+    pub async fn manifest_digest<'a>(
         &self,
         url: &str,
-        sources: Option<&Sources>,
+        sources: Option<&'a Sources>,
     ) -> RegistryResult<String> {
         // Start by building the Reference, this will expand the input url to
         // ensure it contains also the registry. Example: `busybox` ->
@@ -170,11 +175,11 @@ impl Registry {
     ///
     /// Returns the immutable reference to the policy (i.e.
     /// `ghcr.io/kubewarden/secure-policy@sha256:72b4569c3daee67abeaa64192fb53895d0edb2d44fa6e1d9d4c5d3f8ece09f6e`)
-    pub async fn push(
+    pub async fn push<'a>(
         &self,
         policy: &[u8],
         destination: &str,
-        sources: Option<&Sources>,
+        sources: Option<&'a Sources>,
     ) -> RegistryResult<String> {
         let url = Url::parse(destination)
             .map_err(|_| crate::errors::InvalidURLError(destination.to_owned()))?;
