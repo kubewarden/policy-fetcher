@@ -334,15 +334,6 @@ where
 {
     let mut cosign_client = cosign_client_input.lock().await;
 
-    // obtain image name:
-    let image_name = match image_url.strip_prefix("registry://") {
-        None => image_url,
-        Some(url) => url,
-    };
-    if let Err(e) = Reference::try_from(image_name) {
-        return Err(VerifyError::InvalidOCIImageReferenceError(e));
-    }
-
     // obtain registry auth:
     let reference = build_fully_resolved_reference(image_url)?;
     let auth = Registry::auth(reference.registry());
@@ -358,8 +349,8 @@ where
     //
     // trusted_signature_layers() will error early if cosign_client using
     // Fulcio,Rekor certs and signatures are not verified
-    let image_oci_ref =
-        OciReference::from_str(image_name).map_err(VerifyError::FailedToFetchTrustedLayersError)?;
+    let image_oci_ref = OciReference::from_str(&reference.whole())
+        .map_err(VerifyError::FailedToFetchTrustedLayersError)?;
     let (cosign_signature_image, source_image_digest) = cosign_client
         .triangulate(&image_oci_ref, &sigstore_auth)
         .await
@@ -377,7 +368,7 @@ where
             SigstoreError::RegistryPullManifestError { image: _, error: _ } => {
                 VerifyError::ImageVerificationError(format!(
                     "no signatures found for image: {} ",
-                    image_name
+                    reference.whole()
                 ))
             }
             e => VerifyError::FailedToFetchTrustedLayersError(e),
@@ -473,7 +464,7 @@ kvUsh4eKpd1lwkDAzfFDs7yXEExsEkPPuiQJBelDT68n7PDIWB/QEY7mrA==
         let image_url = "ghcr.io/kubewarden/disallow-service-nodeport:latest";
         let mut cosign_client = MockCosignClient::new();
         cosign_client.expect_triangulate().return_once(|_, _| {
-            // Just return an error to avoid further processing in the function 
+            // Just return an error to avoid further processing in the function
             // under test
             Err(sigstore::errors::SigstoreError::RegistryPullManifestError {
                 image: image_url.to_string(),
