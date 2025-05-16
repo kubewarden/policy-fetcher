@@ -286,6 +286,7 @@ pub async fn fetch_sigstore_remote_data(
         RegistryAuth::Basic(username, password) => {
             sigstore::registry::Auth::Basic(username, password)
         }
+        RegistryAuth::Bearer(_) => todo!(), // TODO https://github.com/sigstore/sigstore-rs/pull/463
     };
 
     // obtain all signatures of image:
