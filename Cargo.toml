@@ -26,7 +26,7 @@ oci-client = { version = "0.15", default-features = false, features = [
 path-slash = "0.2"
 rayon = "1.10"
 regex = "1.11"
-reqwest = { version = "0.12", default-features = false, features = [
+reqwest = { version = "0.13", default-features = false, features = [
   "rustls-tls",
 ] }
 rustls = { version = "0.23", default-features = false, features = [
